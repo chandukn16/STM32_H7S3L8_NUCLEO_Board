@@ -1,0 +1,549 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2025 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include <stdio.h>
+
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+float voltage = 0;
+int adc_value = 0;
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
+UART_HandleTypeDef huart3;
+
+/* USER CODE BEGIN PV */
+
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+static void MPU_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_USART3_UART_Init(void);
+static void MX_ADC1_Init(void);
+/* USER CODE BEGIN PFP */
+
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+
+/* USER CODE END 0 */
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+
+  /* USER CODE BEGIN 1 */
+	/* Enable GPIOA clock */
+	__HAL_RCC_GPIOC_CLK_ENABLE();
+
+  /* USER CODE END 1 */
+
+  /* MPU Configuration--------------------------------------------------------*/
+  MPU_Config();
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Update SystemCoreClock variable according to RCC registers values. */
+  SystemCoreClockUpdate();
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_USART3_UART_Init();
+  MX_ADC1_Init();
+  /* USER CODE BEGIN 2 */
+  printf(" <-------------- STARTS -------------->\r\n");
+
+
+//---------------------------------------------------------------------
+
+  	  printf("=== COMPLETE ADC RESET ===\r\n");
+
+  	  // 1. Stop ADC if running
+  	  HAL_ADC_Stop(&hadc1);
+
+  	  // 2. Deinitialize
+  	  HAL_ADC_DeInit(&hadc1);
+
+  	  // 3. HARDWARE RESET - Most important!
+  	  __HAL_RCC_ADC12_FORCE_RESET();
+  	  HAL_Delay(10);
+  	  __HAL_RCC_ADC12_RELEASE_RESET();
+  	  HAL_Delay(10);
+
+  	  // 4. Power cycle ADC
+  	  __HAL_RCC_ADC12_CLK_DISABLE();
+  	  HAL_Delay(10);
+  	  __HAL_RCC_ADC12_CLK_ENABLE();
+  	  HAL_Delay(50);
+
+  	  printf("ADC Hardware Reset Complete\r\n");
+//-------------------------------------------------------------------------
+	printf("=== CLOCK CHECK ===\r\n");
+	printf("System Clock: %lu Hz\r\n", SystemCoreClock);
+
+	// Check if ADC peripheral clock is enabled
+	if (!__HAL_RCC_ADC12_IS_CLK_ENABLED()) {
+		printf("❌ ADC12 Clock DISABLED - This is the problem!\r\n");
+		__HAL_RCC_ADC12_CLK_ENABLE();
+		printf("✅ ADC12 Clock manually enabled\r\n");
+	} else {
+		printf("✅ ADC12 Clock ENABLED\r\n");
+	}
+	if (__HAL_RCC_GPIOC_IS_CLK_ENABLED())
+		printf("GPIOA Clock: ENABLED\r\n");
+	else
+		printf("GPIOA Clock: DISABLED\r\n");
+
+	// Check if clock speed is within limits
+	uint32_t pclk2 = HAL_RCC_GetPCLK2Freq();
+	uint32_t adc_clock = pclk2 / 8; // Assuming DIV8
+	printf("PCLK2: %lu Hz, ADC Clock: %lu Hz\r\n", pclk2, adc_clock);
+
+	if (adc_clock > 36000000) {
+		printf("⚠️ ADC Clock too fast! Use DIV16 instead\r\n");
+	}
+
+	//-------------------------------------------------------------------------
+
+
+
+
+   printf("\r\n****** COMPLETE ADC TEST ******\r\n");
+
+
+      // Step 3: Safe start
+      if (HAL_ADC_Start(&hadc1) == HAL_OK) {
+          // Step 4: Wait for conversion with longer timeout
+          printf("Waiting for conversion...\r\n");
+
+          // Check ADC status register directly
+          uint32_t isr_before = ADC1->ISR;
+          printf("ISR before poll: 0x%lX\r\n", isr_before);
+
+          HAL_StatusTypeDef poll_status = HAL_ADC_PollForConversion(&hadc1, 500); // Longer timeout
+          printf("Poll status: %d\r\n", poll_status);
+
+          uint32_t isr_after = ADC1->ISR;
+          printf("ISR after poll: 0x%lX\r\n", isr_after);
+
+          if (poll_status == HAL_OK) {
+              uint32_t adc_value = HAL_ADC_GetValue(&hadc1);
+              printf("🎉 SUCCESS! ADC Value: %lu\r\n", adc_value);
+
+              // Convert to voltage
+              float voltage = (adc_value * 3.3f) / 4095.0f;
+              printf("Voltage: %.2fV\r\n", voltage);
+          } else {
+              printf("❌ Conversion failed. ADC State: 0x%lX\r\n", hadc1.State);
+
+              // Debug: Check what's in the data register anyway
+              uint32_t raw_data = ADC1->DR;
+              printf("Raw DR register: 0x%lX (%lu)\r\n", raw_data, raw_data);
+          }
+
+          HAL_ADC_Stop(&hadc1);
+      } else {
+          printf("❌ Cannot start ADC\r\n");
+
+          // Last resort: Check if it's a hardware issue
+          printf("Checking ADC hardware...\r\n");
+          uint32_t adc_cr = ADC1->CR;
+          uint32_t adc_cfgr = ADC1->CFGR;
+          printf("CR: 0x%lX, CFGR: 0x%lX\r\n", adc_cr, adc_cfgr);
+
+          if ((adc_cr & 0x10000000) == 0) {
+              printf("⚠️ ADC not enabled in CR register!\r\n");
+          }
+      }
+
+  //-------------------------------------------------------------------------
+
+
+      //--------------------------------------------------------------------------------
+
+                      printf("\r\n=== CONVERSION TEST ===\r\n");
+
+                      // Safe start
+                      if (HAL_ADC_Start(&hadc1) == HAL_OK) {
+                          printf("✅ ADC Started successfully\r\n");
+
+                          // Wait a bit before polling
+                          HAL_Delay(5);
+
+                          // Check if conversion is actually running
+                          uint32_t isr = ADC1->ISR;
+                          uint32_t cr = ADC1->CR;
+                          printf("ISR: 0x%lX,\r\n CR: 0x%lX\r\n", isr, cr);
+
+                          // Poll with timeout
+                          printf("Polling for conversion...\r\n");
+                          HAL_StatusTypeDef poll_status = HAL_ADC_PollForConversion(&hadc1, 1000);
+                          printf("Poll Status: %d\r\n", poll_status);
+
+                          if (poll_status == HAL_OK) {
+                              uint32_t adc_value = HAL_ADC_GetValue(&hadc1);
+                              printf("🎉 SUCCESS! ADC Value: %lu\r\n", adc_value);
+                          } else {
+                              printf("❌ Conversion failed. Debug info:\r\n");
+                              printf("   Final State: 0x%lX\r\n", hadc1.State);
+                              printf("   Final ISR: 0x%lX\r\n", ADC1->ISR);
+                              printf("   Final CR: 0x%lX\r\n", ADC1->CR);
+
+                              // Check specific error conditions
+                              if (ADC1->ISR & ADC_ISR_OVR) {
+                                  printf("   ⚠️ Overrun error detected\r\n");
+                              }
+                              if (ADC1->ISR & ADC_ISR_AWD1) {
+                                  printf("   ⚠️ Analog watchdog triggered\r\n");
+                              }
+                          }
+
+                          // Always stop
+                          HAL_ADC_Stop(&hadc1);
+                          printf("ADC Stopped. Final State: 0x%lX\r\n", hadc1.State);
+
+                      } else {
+                          printf("❌ ADC Start failed repeatedly\r\n");
+                      }
+
+//----------------------------------------------------------------------------------------
+                      printf("=== HARDWARE TEST ===\r\n");
+
+                          // Test if we can access ADC registers
+                          uint32_t original_cr = ADC1->CR;
+                          printf("ADC1 CR Register: 0x%lX\r\n", original_cr);
+
+                          // Try to write to CR register
+                          ADC2->CR = 0x00000001; // Set ADEN bit
+                          uint32_t new_cr = ADC1->CR;
+                          printf("After write - CR: 0x%lX\r\n", new_cr);
+
+                          if (new_cr != original_cr) {
+                              printf("✅ ADC Register access WORKING\r\n");
+                          } else {
+                              printf("❌ ADC Register access FAILED - HARDWARE ISSUE\r\n");
+                              printf("Possible causes:\r\n");
+                              printf("- ADC peripheral damaged\r\n");
+                              printf("- Power supply issue\r\n");
+                              printf("- MCU manufacturing defect\r\n");
+                          }
+
+ //----------------------------------------------------------------------
+
+
+  for (int i=0; i<10; i++) {
+      HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+      HAL_Delay(100);
+  }
+
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+	  // Start conversion
+	   printf(" ______ Attempting ADC Start ______ \r\n");
+	    HAL_StatusTypeDef start_status = HAL_ADC_Start(&hadc1);
+	    printf("ADC Start Status: %d\r\n", start_status);
+
+	    if (start_status == HAL_OK) {
+	        printf("✅ ADC START SUCCESSFUL!\r\n");
+
+	        // Try conversion
+	        if (HAL_ADC_PollForConversion(&hadc1, 500) == HAL_OK) {
+	            uint32_t value = HAL_ADC_GetValue(&hadc1);
+	            printf("✅ ADC VALUE: %lu\r\n", value);
+	        } else {
+	            printf("❌ Conversion failed\r\n");
+	        }
+
+	        HAL_ADC_Stop(&hadc1);
+	    } else {
+	        printf("❌ ADC Start Failed - Possible hardware issue\r\n");
+	    }
+
+
+	  		//Toggle the led only for user notify
+	  		HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+	  		HAL_Delay(1500);
+  }
+
+  /* USER CODE END 3 */
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_MultiModeTypeDef multimode = {0};
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV10;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.SamplingMode = ADC_SAMPLING_MODE_NORMAL;
+  hadc1.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DR;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.OversamplingMode = DISABLE;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure the ADC multi-mode
+  */
+  multimode.Mode = ADC_MODE_INDEPENDENT;
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_10;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_92CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  sConfig.OffsetSign = ADC_OFFSET_SIGN_POSITIVE;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart3, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart3, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+
+  /* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(ULED_GPIO_Port, ULED_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : ULED_Pin */
+  GPIO_InitStruct.Pin = ULED_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(ULED_GPIO_Port, &GPIO_InitStruct);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /* USER CODE END MX_GPIO_Init_2 */
+}
+
+/* USER CODE BEGIN 4 */
+// Simple retarget of printf to UART3
+int __io_putchar(int ch)
+{
+  HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+  return ch;
+}
+
+/* USER CODE END 4 */
+
+ /* MPU Configuration */
+
+static void MPU_Config(void)
+{
+  MPU_Region_InitTypeDef MPU_InitStruct = {0};
+
+  /* Disables the MPU */
+  HAL_MPU_Disable();
+
+  /* Disables all MPU regions */
+  for(uint8_t i=0; i<__MPU_REGIONCOUNT; i++)
+  {
+    HAL_MPU_DisableRegion(i);
+  }
+
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER0;
+  MPU_InitStruct.BaseAddress = 0x0;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
+  MPU_InitStruct.SubRegionDisable = 0x87;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+  /* Enables the MPU */
+  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+
+}
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+  __disable_irq();
+  while (1)
+  {
+  }
+  /* USER CODE END Error_Handler_Debug */
+}
+#ifdef USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */

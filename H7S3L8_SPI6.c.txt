@@ -1,0 +1,444 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2025 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <string.h>
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+#define CS_PIN GPIO_PIN_14
+#define CS_PORT GPIOD
+
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+const uint16_t CONFIG_A0 = 0xC583; // Single-ended AIN0, 16-bit, single-shot mode, For ±2.048 V range
+const uint16_t CONFIG_A1 = 0xD583; // Single-ended AIN1, 16-bit, single-shot mode, For ±2.048 V range
+const uint16_t CONFIG_A2 = 0xE583;
+const uint16_t CONFIG_A3 = 0xF583;
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+
+SPI_HandleTypeDef hspi6;
+
+UART_HandleTypeDef huart3;
+
+/* USER CODE BEGIN PV */
+
+
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+static void MPU_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_SPI6_Init(void);
+static void MX_USART3_UART_Init(void);
+/* USER CODE BEGIN PFP */
+
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+/* Retarget printf to UART */
+int _write(int file, char *ptr, int len)
+{
+    HAL_UART_Transmit(&huart3, (uint8_t*)ptr, len, HAL_MAX_DELAY);
+    return len;
+}
+
+/* USER CODE END 0 */
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+
+  /* USER CODE BEGIN 1 */
+	/* force SPI1 clock enable just before init */
+	__HAL_RCC_SPI1_CLK_ENABLE();
+
+  /* USER CODE END 1 */
+
+  /* MPU Configuration--------------------------------------------------------*/
+  MPU_Config();
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Update SystemCoreClock variable according to RCC registers values. */
+  SystemCoreClockUpdate();
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+
+  /* USER CODE END Init */
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_SPI6_Init();
+  MX_USART3_UART_Init();
+  /* USER CODE BEGIN 2 */
+  /* Paste after MX_GPIO_Init() and before any SPI use */
+
+  for (int i=0; i<10; i++) {
+      HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+      HAL_Delay(100);
+  }
+
+
+  /* Read ADS1118 ADC value */
+  int16_t readADS1118(uint16_t config)
+  {
+	  uint16_t tx = config;
+	     uint16_t rx = 0;
+	     uint16_t dummy = 0;
+
+	     // 1. Send config word (starts conversion)
+	     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
+	     HAL_SPI_TransmitReceive(&hspi6, (uint8_t*)&tx, (uint8_t*)&rx, 1, 1000);
+	     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
+
+	     HAL_Delay(10);  // Wait for conversion (~8ms typical)
+
+	     // 2. Read conversion result
+	     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
+	     HAL_SPI_TransmitReceive(&hspi6, (uint8_t*)&dummy, (uint8_t*)&rx, 1, 1000);
+	     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
+
+	     return (int16_t)rx;  // return signed 16-bit result
+
+  }
+
+  //----------------------------------------------
+
+        uint8_t tx_data3[2] = {0xA5, 0x5A};
+        uint8_t rx_data3[2] = {0, 0};
+
+        printf(" ######## Starting SPI Test ######## \r\n");
+
+        // Test 1: 8-bit transfer
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
+        HAL_StatusTypeDef status3 = HAL_SPI_TransmitReceive(&hspi6, tx_data3, rx_data3, 2, 1000);
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
+
+        printf("8-bit Test:\r\n");
+        printf("  Status: %d (%s)\r\n", status3,
+               status3 == HAL_OK ? "SUCCESS" :
+               status3 == 1 ? "ERROR" :
+               status3 == 2 ? "BUSY" : "TIMEOUT");
+        printf("  Sent: 0x%02X 0x%02X, Received: 0x%02X 0x%02X\r\n",
+               tx_data3[0], tx_data3[1], rx_data3[0], rx_data3[1]);
+
+        // Test 2: 16-bit transfer
+        uint16_t tx_16 = 0x1234, rx_16 = 0;
+
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
+        status3 = HAL_SPI_TransmitReceive(&hspi6, (uint8_t*)&tx_16, (uint8_t*)&rx_16, 1, 1000);
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
+
+        printf("16-bit Test:\r\n");
+        printf("  Status: %d (%s)\r\n", status3,
+                      status3 == HAL_OK ? "SUCCESS" :
+                      status3 == 1 ? "ERROR" :
+                      status3 == 2 ? "BUSY" : "TIMEOUT");
+        printf("  Sent: 0x%04X, Received: 0x%04X\r\n", tx_16, rx_16);
+
+   //-----------------------------------------------------------
+
+
+//-----------------------
+
+
+
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+
+		int16_t rawData0 = readADS1118(CONFIG_A0);  // Read AIN0
+		int16_t rawData1 = readADS1118(CONFIG_A1); // Read AIN1
+		int16_t rawData2 = readADS1118(CONFIG_A2);  // Read AIN2
+		int16_t rawData3 = readADS1118(CONFIG_A3); // Read AIN3
+	 	        float VREF = 3.3f;
+	 	        float voltage0 = (rawData0  * VREF) / 32768.0f;
+	 	        float voltage1 = (rawData1 * VREF) / 32768.0f;
+	 	        float voltage2 = (rawData2  * VREF) / 32768.0f;
+	 	        float voltage3 = (rawData3 * VREF) / 32768.0f;
+
+	 	       printf("A0. Raw ADC Value : %d \r\n", rawData0);
+	 	       printf("A0.    Voltage    : %f V\r\n",voltage0);
+	 	       printf("A1. Raw ADC Value : %d \r\n", rawData1);
+	 	       printf("A1.    Voltage    : %f V\r\n",voltage1);
+	 	       printf("A2. Raw ADC Value : %d \r\n", rawData2);
+	 	       printf("A2.    Voltage    : %f V\r\n",voltage2);
+	 	       printf("A3. Raw ADC Value : %d \r\n", rawData3);
+	 	       printf("A3.    Voltage    : %f V\r\n",voltage3);
+	 	      printf("\r\n");
+
+	 	         HAL_Delay(1000); // Wait before next reading
+
+
+
+      //Toggle LED for USER Understanding
+      	  HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+      	     HAL_Delay(1000);
+  }
+
+
+  /* USER CODE END 3 */
+}
+
+/**
+  * @brief SPI6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI6_Init(void)
+{
+
+  /* USER CODE BEGIN SPI6_Init 0 */
+
+  /* USER CODE END SPI6_Init 0 */
+
+  /* USER CODE BEGIN SPI6_Init 1 */
+
+  /* USER CODE END SPI6_Init 1 */
+  /* SPI6 parameter configuration*/
+  hspi6.Instance = SPI6;
+  hspi6.Init.Mode = SPI_MODE_MASTER;
+  hspi6.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi6.Init.DataSize = SPI_DATASIZE_16BIT;
+  hspi6.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi6.Init.CLKPhase = SPI_PHASE_2EDGE;
+  hspi6.Init.NSS = SPI_NSS_SOFT;
+  hspi6.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
+  hspi6.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi6.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi6.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi6.Init.CRCPolynomial = 0x7;
+  hspi6.Init.NSSPMode = SPI_NSS_PULSE_DISABLE;
+  hspi6.Init.NSSPolarity = SPI_NSS_POLARITY_LOW;
+  hspi6.Init.FifoThreshold = SPI_FIFO_THRESHOLD_01DATA;
+  hspi6.Init.MasterSSIdleness = SPI_MASTER_SS_IDLENESS_00CYCLE;
+  hspi6.Init.MasterInterDataIdleness = SPI_MASTER_INTERDATA_IDLENESS_00CYCLE;
+  hspi6.Init.MasterReceiverAutoSusp = SPI_MASTER_RX_AUTOSUSP_DISABLE;
+  hspi6.Init.MasterKeepIOState = SPI_MASTER_KEEP_IO_STATE_DISABLE;
+  hspi6.Init.IOSwap = SPI_IO_SWAP_DISABLE;
+  hspi6.Init.ReadyMasterManagement = SPI_RDY_MASTER_MANAGEMENT_INTERNALLY;
+  hspi6.Init.ReadyPolarity = SPI_RDY_POLARITY_HIGH;
+  if (HAL_SPI_Init(&hspi6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI6_Init 2 */
+
+  /* USER CODE END SPI6_Init 2 */
+
+}
+
+/**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart3, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart3, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+
+  /* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(ADS_CS_GPIO_Port, ADS_CS_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(ULED_GPIO_Port, ULED_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : ADS_CS_Pin */
+  GPIO_InitStruct.Pin = ADS_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(ADS_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ULED_Pin */
+  GPIO_InitStruct.Pin = ULED_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(ULED_GPIO_Port, &GPIO_InitStruct);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /* USER CODE END MX_GPIO_Init_2 */
+}
+
+/* USER CODE BEGIN 4 */
+// Simple retarget of printf to UART3
+int __io_putchar(int ch)
+{
+  HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+  return ch;
+}
+/* USER CODE END 4 */
+
+ /* MPU Configuration */
+
+static void MPU_Config(void)
+{
+  MPU_Region_InitTypeDef MPU_InitStruct = {0};
+
+  /* Disables the MPU */
+  HAL_MPU_Disable();
+
+  /* Disables all MPU regions */
+  for(uint8_t i=0; i<__MPU_REGIONCOUNT; i++)
+  {
+    HAL_MPU_DisableRegion(i);
+  }
+
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER0;
+  MPU_InitStruct.BaseAddress = 0x0;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
+  MPU_InitStruct.SubRegionDisable = 0x87;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+  /* Enables the MPU */
+  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+
+}
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+  __disable_irq();
+  while (1)
+  {
+  }
+  /* USER CODE END Error_Handler_Debug */
+}
+#ifdef USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */
